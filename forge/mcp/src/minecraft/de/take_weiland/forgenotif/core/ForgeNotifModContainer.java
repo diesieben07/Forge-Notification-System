@@ -1,8 +1,19 @@
 package de.take_weiland.forgenotif.core;
 
+import java.io.BufferedInputStream;
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.security.KeyFactory;
+import java.security.NoSuchAlgorithmException;
+import java.security.PublicKey;
+import java.security.spec.InvalidKeySpecException;
+import java.security.spec.KeySpec;
+import java.security.spec.X509EncodedKeySpec;
+import java.util.List;
 import java.util.Map;
 import java.util.logging.Logger;
 
@@ -24,10 +35,12 @@ import cpw.mods.fml.common.ModMetadata;
 import cpw.mods.fml.common.WorldAccessContainer;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStartedEvent;
+import cpw.mods.fml.common.event.FMLServerStoppedEvent;
 import cpw.mods.fml.common.event.FMLServerStoppingEvent;
 import cpw.mods.fml.common.registry.TickRegistry;
 import cpw.mods.fml.relauncher.Side;
 import de.take_weiland.forgenotif.PacketTickHandler;
+import de.take_weiland.forgenotif.Reward;
 import de.take_weiland.forgenotif.network.ListenerThread;
 
 public class ForgeNotifModContainer extends DummyModContainer implements WorldAccessContainer {
@@ -38,7 +51,6 @@ public class ForgeNotifModContainer extends DummyModContainer implements WorldAc
 	
 	private final Logger logger;
 	
-	private boolean isInitialized = false;
 	private int port;
 	private ListenerThread listenerThread = null;
 	private PacketTickHandler tickHandler;
@@ -85,7 +97,8 @@ public class ForgeNotifModContainer extends DummyModContainer implements WorldAc
 		
 		config.save();
 		
-		isInitialized = true;
+		tickHandler = new PacketTickHandler(MinecraftServer.getServer(), logger);
+		TickRegistry.registerScheduledTickHandler(tickHandler, Side.SERVER);
 	}
 	
 	public PacketTickHandler getTickHandler() {
@@ -97,9 +110,23 @@ public class ForgeNotifModContainer extends DummyModContainer implements WorldAc
 		if (listenerThread != null) {
 			logger.info("Multiple server startings? Seems weird...");
 			listenerThread.shutdown();
+			listenerThread = null;
 		}
+		
+		PublicKey key = null;
+		
 		try {
-			listenerThread = new ListenerThread(port, InetAddress.getByName(MinecraftServer.getServer().getHostname()), logger);
+			key = loadKey(MinecraftServer.getServer());
+		} catch (Exception e1) {
+			logger.warning("public.key file missing or corrupted! Aborting...");
+		}
+		
+		if (key == null) {
+			return;
+		}
+		
+		try {
+			listenerThread = new ListenerThread(port, InetAddress.getByName(MinecraftServer.getServer().getHostname()), key, logger);
 			listenerThread.start();
 		} catch (UnknownHostException e) {
 			logger.warning("Invalid host in server.properties!");
@@ -108,25 +135,41 @@ public class ForgeNotifModContainer extends DummyModContainer implements WorldAc
 			e.printStackTrace();
 		}
 		
-		tickHandler = new PacketTickHandler(MinecraftServer.getServer());
-		TickRegistry.registerScheduledTickHandler(tickHandler, Side.SERVER);
+		if (listenerThread == null) {
+			return;
+		}
 	}
 	
+	private PublicKey loadKey(MinecraftServer server) throws IOException, NoSuchAlgorithmException, InvalidKeySpecException {
+		File keyFile = server.getFile("public.key");
+		InputStream fileStream = new BufferedInputStream(new FileInputStream(keyFile));
+		byte[] bytes = new byte[(int)keyFile.length()];
+		fileStream.read(bytes);
+		fileStream.close();
+		KeySpec spec = new X509EncodedKeySpec(bytes);
+		KeyFactory factory = KeyFactory.getInstance("RSA");
+		return factory.generatePublic(spec);
+	}
+		
 	@Subscribe
 	public void serverStopping(FMLServerStoppingEvent evt) {
 		if (listenerThread != null) {
 			listenerThread.shutdown();
 			while (listenerThread.isAlive()) {}
+			tickHandler.stopProcessing();
+			while (tickHandler.isProcessing()) {}
 		}
 	}
-
+	
 	@Override
 	public NBTTagCompound getDataForWriting(SaveHandler handler, WorldInfo info) {
-		return new NBTTagCompound();
+		NBTTagCompound pendingRewards = new NBTTagCompound();
+		tickHandler.writeRewards(pendingRewards);
+		return pendingRewards;
 	}
 
 	@Override
 	public void readData(SaveHandler handler, WorldInfo info, Map<String, NBTBase> propertyMap, NBTTagCompound tag) {
-		
+		tickHandler.readRewards(tag);
 	}
 }

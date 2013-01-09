@@ -7,20 +7,15 @@ import net.minecraft.server.MinecraftServer;
 
 import com.google.common.io.ByteArrayDataOutput;
 
+
 public class PacketReward extends FNSPacket {
 
 	private String username;
 	private long timestamp;
 	
 	@Override
-	protected String getVersion() {
-		return "1.0";
-	}
-
-	@Override
 	protected void readData(DataInput in) throws ProtocolException, IOException {
 		username = readString(in);
-		readNullbyte(in);
 		timestamp = in.readLong();
 	}
 
@@ -31,13 +26,16 @@ public class PacketReward extends FNSPacket {
 		out.writeLong(timestamp);
 	}
 
-	@Override
-	public void handle(MinecraftServer server) {
-		System.out.println("Handling: " + username + " " + timestamp);
+	public String getUsername() {
+		return username;
+	}
+
+	public long getTimestamp() {
+		return timestamp;
 	}
 
 	@Override
-	protected boolean handleInMinecraftContext() {
-		return true;
+	public void handle(PacketHandler handler) {
+		handler.handleReward(this);
 	}
 }

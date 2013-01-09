@@ -7,7 +7,14 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
+import java.security.InvalidKeyException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.PublicKey;
 import java.util.logging.Logger;
+
+import javax.crypto.Cipher;
+import javax.crypto.NoSuchPaddingException;
 
 import de.take_weiland.forgenotif.core.ForgeNotifModContainer;
 import de.take_weiland.forgenotif.network.FNSPacket.ProtocolException;
@@ -16,11 +23,25 @@ public class TCPThread extends Thread {
 
 	private final Socket socket;
 	private final Logger logger;
+	private final PublicKey key;
+	private Cipher cipher;
+	private MessageDigest sha1;
 	private boolean keepAlive = true;
 	
-	public TCPThread(Socket socket, Logger logger) {
+	public TCPThread(Socket socket, PublicKey key, Logger logger) {
 		this.socket = socket;
 		this.logger = logger;
+		this.key = key;
+		try {
+			this.cipher = Cipher.getInstance("RSA");
+		} catch (Exception e) {
+			this.cipher = null;
+		}
+		try {
+			this.sha1 = MessageDigest.getInstance("SHA1");
+		} catch (NoSuchAlgorithmException e) {
+			this.sha1 = null;
+		}
 	}
 	
 	@Override
@@ -32,10 +53,16 @@ public class TCPThread extends Thread {
 			inStream = socket.getInputStream();
 			outStream = socket.getOutputStream();
 			
+			if (cipher == null || this.sha1 == null) {
+				socket.close();
+				return;
+			}
+			
 			while (keepAlive) {
 				FNSPacket packet = null;
 				try {
-					packet = FNSPacket.parsePacket(new DataInputStream(inStream));
+					packet = FNSPacket.parsePacket(new DataInputStream(inStream), this, cipher, key, sha1);
+					packet.handle();
 				} catch (ProtocolException e) {
 					logger.info("Protocol exception from client " + socket.getInetAddress().getHostAddress());
 					e.printStackTrace();
@@ -43,17 +70,11 @@ public class TCPThread extends Thread {
 					outStream.close();
 					return;
 				}
-				if (packet.handleInMinecraftContext()) {
-					ForgeNotifModContainer.instance().getTickHandler().schedulePacket(packet);
-				} else {
-					packet.handle(this);
-				}
 			}
 		} catch (IOException e) {
 			e.printStackTrace();
 			try {
-				inStream.close();
-				outStream.close();
+				socket.close();
 			} catch (Exception e2) { }
 		}
 	}
