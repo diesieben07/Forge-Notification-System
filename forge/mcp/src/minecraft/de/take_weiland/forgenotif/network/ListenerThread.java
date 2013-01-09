@@ -45,6 +45,7 @@ public class ListenerThread extends Thread {
 		while (shouldListen) {
 			try {
 				Socket socket = inSocket.accept();
+				System.out.println("accept");
 				logger.fine("Starting TCP Thread for " + socket.getInetAddress().getHostAddress());
 				new TCPThread(socket, key, logger).start();
 			} catch (IOException e) {

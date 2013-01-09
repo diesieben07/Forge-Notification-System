@@ -49,7 +49,7 @@ public class TCPThread extends Thread {
 		InputStream inStream = null;
 		OutputStream outStream = null;
 		try {
-			socket.setSoTimeout(200);
+			socket.setSoTimeout(60000);
 			inStream = socket.getInputStream();
 			outStream = socket.getOutputStream();
 			

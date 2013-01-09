@@ -86,7 +86,10 @@ public class PacketTickHandler implements IScheduledTickHandler, PacketHandler {
 	@Override
 	public void handleReward(PacketReward packet) {
 		synchronized (pendingRewards) {
-			pendingRewards.add(new Reward(packet));
+			System.out.println("adding reward");
+			Reward r = new Reward(packet);
+			System.out.println(r.getUsername() + " / " + r.getTimestamp());
+			pendingRewards.add(r);
 		}
 	}
 	
